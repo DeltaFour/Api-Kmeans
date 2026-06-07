@@ -13,6 +13,7 @@ services:
       API_BASE_URL: http://ponto-eletronico-api:8080
       NUMBER_OF_CLUSTERS: 3
       API_KEY: "KMEANS_API_KEY"
+      CRON_API_KEY: "CRON_API_KEY"
 
     restart: unless-stopped
 

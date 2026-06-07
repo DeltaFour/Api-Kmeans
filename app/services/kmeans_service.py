@@ -32,7 +32,18 @@ CLASSIFICATION_ENDPOINT = (
     f"{API_BASE_URL}/api/v1/punctuality-metrics/classification"
 )
 
-FEATURES = [
+# Features usadas para AGRUPAR. Apenas as duas dimensões de pontualidade que
+# o gráfico de dispersão exibe (Eixo X e Eixo Y). Isso garante que a separação
+# dos clusters seja exatamente a que o usuário vê, e que cada centróide caia no
+# centro visível do seu grupo (sem projeção de dimensões ocultas).
+CLUSTERING_FEATURES = [
+    "latePercentage",
+    "averageLateMinutes"
+]
+
+# Features apenas DESCRITIVAS, reportadas no centróide (médias por cluster) para
+# enriquecer o painel de RH, mas que NÃO influenciam o agrupamento.
+REPORT_FEATURES = [
     "latePercentage",
     "averageLateMinutes",
     "maxLateMinutes",
@@ -113,7 +124,7 @@ def _process_company(company_id, company_df):
 
     company_df = company_df.reset_index(drop=True)
 
-    X = company_df[FEATURES]
+    X = company_df[CLUSTERING_FEATURES]
 
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
@@ -135,16 +146,13 @@ def _process_company(company_id, company_df):
             4
         )
 
-    centroids = scaler.inverse_transform(kmeans.cluster_centers_)
-
     cluster_mapping = _normalize_cluster_order(company_df)
 
     company_df["cluster"] = company_df["cluster"].map(cluster_mapping)
 
-    centroids_payload = _build_centroids_payload(
-        centroids,
-        cluster_mapping
-    )
+    # O centróide é a média de cada feature dentro do cluster — calculado direto
+    # do dataframe já reordenado, então fica sempre centrado nos pontos exibidos.
+    centroids_payload = _build_centroids_payload(company_df)
 
     user_clusters = _build_user_clusters(company_df)
 
@@ -206,37 +214,39 @@ def _build_user_clusters(df):
     return result
 
 
-def _build_centroids_payload(
-    centroids,
-    cluster_mapping
-):
+def _build_centroids_payload(df):
+
+    # Média de cada feature reportada, por cluster já normalizado.
+    grouped = (
+        df.groupby("cluster")[REPORT_FEATURES]
+          .mean()
+          .reset_index()
+    )
 
     result = []
 
-    for old_cluster, centroid in enumerate(centroids):
+    for row in grouped.itertuples(index=False):
 
         result.append({
-            "cluster": int(
-                cluster_mapping[old_cluster]
-            ),
+            "cluster": int(row.cluster),
             "latePercentage": round(
-                float(centroid[0]),
+                float(row.latePercentage),
                 2
             ),
             "averageLateMinutes": round(
-                float(centroid[1]),
+                float(row.averageLateMinutes),
                 2
             ),
             "maxLateMinutes": round(
-                float(centroid[2]),
+                float(row.maxLateMinutes),
                 2
             ),
             "totalAbsences": round(
-                float(centroid[3]),
+                float(row.totalAbsences),
                 2
             ),
             "totalWorkedDays": round(
-                float(centroid[4]),
+                float(row.totalWorkedDays),
                 2
             )
         })
@@ -249,16 +259,25 @@ def _build_centroids_payload(
 
 def _normalize_cluster_order(df):
 
+    # Reordena os rótulos por SEVERIDADE de pontualidade, não só por frequência.
+    # severity = (frequência de atraso) × (gravidade média do atraso)
+    #          ≈ minutos de atraso "amortizados" por dia trabalhado.
+    # Assim, um grupo que atrasa pouco mas muito tempo não é rotulado como Pontual.
     cluster_stats = (
         df.groupby("cluster")
-          .agg({
-              "latePercentage": "mean"
-          })
-          .reset_index()
-          .sort_values(
-              by="latePercentage"
+          .agg(
+              latePercentage=("latePercentage", "mean"),
+              averageLateMinutes=("averageLateMinutes", "mean")
           )
+          .reset_index()
     )
+
+    cluster_stats["severity"] = (
+        cluster_stats["latePercentage"] / 100.0
+        * cluster_stats["averageLateMinutes"]
+    )
+
+    cluster_stats = cluster_stats.sort_values(by="severity")
 
     mapping = {}
 

@@ -1,0 +1,16 @@
+.git
+.gitignore
+
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+venv
+.venv
+
+.idea
+.vscode
+
+attendance_dataset.json
+kmeans_result.json

@@ -1,0 +1,24 @@
+services:
+  punctuality-kmeans:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: punctuality-kmeans
+
+    ports:
+      - "8081:8080"
+
+    environment:
+      API_BASE_URL: http://ponto-eletronico-api:8080
+      NUMBER_OF_CLUSTERS: 3
+      API_KEY: "KMEANS_API_KEY"
+
+    restart: unless-stopped
+
+    networks:
+      - delta-net
+
+networks:
+  delta-net:
+    external: true
